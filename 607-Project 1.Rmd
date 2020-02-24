@@ -1,0 +1,118 @@
+---
+title: "DATA 607 - Project 1"
+author: "Vincent Bianco"
+date: "2/22/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Introdution: The purpose of this project is to create a methodology for reading specific fields of data about Chess players from a strucutured list of chess tournament results. The end result will be file containing each players name, state, number of points, pre-rating, and the average pre-rating of the opponents they faced.
+
+First, we start by importing the stringr library:
+```{r}
+library(stringr)
+```
+
+Next, we read in the structured tournament results file:
+```{r}
+results_file <- readLines('https://raw.githubusercontent.com/biancov/DATA607-Project1/master/tournamentinfo.txt')
+```
+
+Showing the format of the results_file:
+```{r}
+results_file
+```
+
+Here we see that results_file shows each separate line as a string. All the metrics and information that we need to collect for each player lies on two separate and consecutive lines. The player name, total points, and player id are on the first line, and the player state and pre-rating are on the second line. The first line for player 1 (Gary Hua) starts on row [5], and the next first line for player 2 (Dakshesh Daruri) is on row [8]. So here, we see that the first and second lines for each individual player are spaced out every 3 rows in results_file. We can then separate out all the line1s and line2s for each player into two separate vectors, this will now match the player id to their row index: 
+
+```{r}
+all_line1s <- results_file[seq(5,length(results_file),3)]
+all_line2s <- results_file[seq(6,length(results_file),3)]
+head(all_line1s)
+head(all_line2s)
+```
+The first piece of information we want to extract is the player's name. Here, we have to consider that all the players have a least a first and last name, but some players have up to 4 separate names and may also have hyphenated names. So to ensure that all the names have been extracted, we use the regular expression below:
+```{r}
+names <- str_extract_all(all_line1s,
+    "\\|\\s[\\D|[:punct:]]+\\s[\\D|[:punct:]]{2,}\\s+[\\D|[:punct:]]*\\s+[\\D|[:punct:]]*\\s+\\|")
+head(names)
+```
+
+This gave us all the player names and some extra space around them, so we can replace the | characters with blanks and trim the white spaces at the front:
+```{r}
+clean_names <- str_trim(str_replace_all(names,"\\|",""))
+clean_names
+```
+
+Next, we extract the states from the all_line2s vector and trim the extra white space. Here, we can take advantage of the fact that the state acronym is the only occurence of two consecutive letters in each string:
+```{r}
+state <- str_trim(str_extract(all_line2s,"\\s+\\w+"))
+state
+```
+
+For extracting the player's total points, we extract all instances of a "digit . digit" and then convert it to a numeric type:
+```{r}
+total_points <- as.numeric(str_extract(all_line1s, "\\d\\.\\d"))
+total_points
+```
+
+To get the pre-rating, we use a regular expression which takes advantage of the fact that it is the series of 3 or 4 digits after the "R: ". The "R: " part of the string is then removed and the remaining digits are converted to numerics:
+```{r}
+pre_rating <- as.numeric(str_replace(str_extract(all_line2s, "R:[:blank:]+[:digit:]+"),"R: ", ""))
+pre_rating
+```
+
+Now that we have the player name, state, total points and pre_rating, we can organize them all into the following data frame:
+```{r}
+player_stats_frame <- data.frame(clean_names, state, total_points, pre_rating)
+player_stats_frame
+```
+
+The last metric left is the average pre-rating of the opponents that each player faced in the tournament. To calculate this, we must first, for every player, extract their opponents' player ids which are listed in each line1. To do this, we create a subset of each string, only looking at the characters in the "rounds" columns. 
+
+Extracting the digits from a single string subset will result in a list of strings, represnting each opponent's player id. When done for all 64 players, the result is a list of 64 lists of strings. This makes things tricky because not only do we have to convert these player ids to numeric types, we also have to use them to reference the pre-ratings of these players in the player stats data frame. Both of these steps were done at the same time by using nested for loops, one to iterate through each player, and the other to iterate through each of their opponent's player ID strings. Once each opponent's player ID was individually converted to numeric it was then used to reference the player's pre-rating, which was then stored in another list of 64 lists, this time showing the collection of opponent pre-ratings for each player. Finally, each of these lists could be averaged over, calculating the average pre-rating of the opponents for each player, and stored in a new list.   
+
+```{r}
+    opponents <- str_extract_all(str_sub(all_line1s, start=47),"\\d+") 
+
+    opponent_pre_ratings <- vector(mode = 'list', length = length(opponents))
+    AvgOppPreRatings <- vector(mode = 'list', length = length(opponents))
+     
+for(i in seq(1,length(all_line1s))){
+  for(j in seq(1,length(opponents[[i]]))){
+    
+    opponents_numeric <- as.numeric(opponents[[i]][j])
+    
+    opponent_pre_ratings[[i]][j] <- player_stats_frame$pre_rating[opponents_numeric]
+    
+  }
+  
+  AvgOppPreRatings[i] <- round(mean(opponent_pre_ratings[[i]]))
+  
+}
+#opponents_numeric    
+#player_stats_frame$pre_rating[39]
+#head(opponent_pre_ratings)
+head(AvgOppPreRatings)
+
+```
+The list was then converted into a vector so that it could be easily appended to the player stats data frame.
+
+```{r}
+AvgOppPreRatingsVector <- unlist(AvgOppPreRatings)
+
+player_stats_frame$Avg_Opponent_Pre_Rating <- AvgOppPreRatingsVector
+
+player_stats_frame
+```
+
+Finally, we can take our player_stats data frame and write it to a .csv file.
+```{r}
+write.csv(player_stats_frame,'player_stats_file.csv')
+```
+
